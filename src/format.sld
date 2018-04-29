@@ -1,0 +1,159 @@
+(define-library (format)
+  (export format print println formatter)
+  (import (scheme base)
+          (scheme write)
+	  (scheme char)
+
+          (parsing)
+          (monads))
+
+  (begin
+    (define-record-type <my-spec>
+      (make-spec fill align sign sharp zero width precision type)
+      spec?
+      (fill      spec-fill)
+      (align     spec-align)
+      (sign      spec-sign)
+      (sharp     spec-sharp)
+      (zero      spec-zero)
+      (width     spec-width)
+      (precision spec-precision)
+      (type      spec-type))
+
+    (define identifier
+      (seq <parsing>
+	   (satisfies item char-alphabetic?)
+	   (many-char* (satisfies item (lambda (c)
+					 (or (char-alphabetic? c)
+					     (char-numeric? c)
+					     ((char-in "_-") c)))))
+	   (flush)))
+
+    (define integer
+      (some-char (satisfies item char-numeric?)
+		 string->number))
+
+    (define argument
+      (choice integer identifier))
+
+    (define parameter
+      (seq <parsing>
+	   (x <- argument)
+	   (literal "$")
+	   (parsing-return x)))
+
+    (define count
+      (choice parameter integer))
+
+    (define spec-parser
+      (seq <parsing>
+	   (align     <- (optional
+			  (choice
+			   (seq <parsing>
+				(fill <- (one item))
+				(dir  <- (one (char= #\< #\^ #\>)))
+				(parsing-return (cons fill dir)))
+			   (seq <parsing>
+				(dir  <- (one (char= #\< #\^ #\>)))
+				(parsing-return (cons #\space dir))))))
+	   (sign      <- (optional (one (char= #\+ #\-))))
+	   (sharp     <- (optional (one (char= #\#))))
+	   (zero      <- (optional (one (char= #\0))))
+	   (width     <- (optional (choice count (one (char= #\*)))))
+	   (precision <- (optional (seq <parsing> (one (char= #\.)) count)))
+	   (type      <- (optional identifier))
+	   (parsing-return
+	    (make-spec (if (nothing? align) *nothing* (car align))
+		       (if (nothing? align) *nothing* (cdr align))
+		       sign sharp zero width precision type))))
+
+    (define escape
+      (choice (seq <parsing>
+		   (literal "{{")
+		   (parsing-return "{"))
+	      (seq <parsing>
+		   (literal "}}")
+		   (parsing-return "}"))))
+
+    (define clause
+      (seq <parsing>
+	   (literal "{")
+	   (arg <- (optional argument))
+	   (fmt <- (optional (seq <parsing>
+				  (literal ":")
+				  spec-parser)))
+	   (literal "}")
+	   (parsing-return (cons arg fmt))))
+
+    (define text
+      (some-char (char!= #\{ #\})))
+
+    (define format-string-parser
+      (many (choice text escape clause)))
+
+    (define (parse-format-string str)
+      (parse-string
+       format-string-parser
+       str))
+
+    (define (format-value spec value port)
+      ;;(display "formating: ") (write value) (display ", type: ")
+      ;;(write (if (nothing? spec) "<nothing>" (spec-type spec))) (newline)
+      (cond
+       ((nothing? spec)            (display value port))
+       ((equal? (spec-type spec) "s") (write value port))
+       (else (display value port))))
+
+    (define (format-arguments fmt-lst args port)
+      (let loop ((iter-args args)
+                 (items     fmt-lst))
+        (cond
+         ((null? items)         #false)
+
+         ((string? (car items))
+	  (display (car items) port)
+	  (loop iter-args (cdr items)))
+
+         ((pair?   (car items))
+	  (cond
+	   ((nothing? (caar items))
+	    (when (null? iter-args)
+	      (raise "format: not enough arguments"))
+	    (format-value (cdar items)
+			  (car iter-args)
+			  port)
+	    (loop (cdr iter-args)
+		  (cdr items)))
+
+	   ((number? (caar items))
+	    (when (>= (caar items) (length args))
+	      (raise "format: not enough arguments"))
+	    (format-value (cdar items)
+			  (list-ref args (caar items))
+			  port)
+	    (loop iter-args
+		  (cdr items)))
+
+	   ((string? (caar items))
+	    (raise "format: named arguments not supported"))
+
+	   (else (raise "format: sanity failure"))))
+
+         (else (raise "format: sanity failure")))))
+
+    (define (formatter str)
+      (let ((fmt-lst (parse-format-string str)))
+        (lambda args
+          (let ((output (open-output-string)))
+            (format-arguments fmt-lst args output)
+            (get-output-string output)))))
+
+    (define (format str . args)
+      (apply (formatter str) args))
+
+    (define (print str . args)
+      (display (apply (formatter str) args)))
+
+    (define (println str . args)
+      (apply print str args) (newline))
+))
