@@ -1,15 +1,15 @@
-(define-library (monads)
+(library (monads)
   (export seq make-monad monad? monad-return monad-bind
-	  *maybe* *nothing* nothing?)
+  	<maybe> *nothing* nothing? <-)
 
-  (import (scheme base))
+  (import (rnrs (6))
+	  (aux-keyword))
 
   (begin
-    (define-record-type <monad>
-      (make-monad bind return)
-      monad?
-      (bind monad-bind)
-      (return monad-return))
+    (define-auxiliary-keywords <-)
+
+    (define-record-type monad
+      (fields bind return))
 
     (define-syntax seq
       (syntax-rules (<-)
@@ -41,10 +41,8 @@
           (lambda _
     	(seq <M> <rest> ...))))))
 
-    (define-record-type <nothing>
-      (make-nothing)
-      nothing?)
-    
+    (define-record-type nothing)
+
     (define *nothing* (make-nothing))
     
     (define (maybe-bind value f)
@@ -54,5 +52,5 @@
     
     (define maybe-return values)
     
-    (define *maybe* (make-monad maybe-bind maybe-return))
+    (define <maybe> (make-monad maybe-bind maybe-return))
  ))

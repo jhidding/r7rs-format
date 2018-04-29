@@ -1,0 +1,381 @@
+#+TITLE: Monads
+
+Implements =seq= syntax (similar to Haskell's =do=) for R[6-7]RS schemes.
+
+* Settings
+** org-mode
+#+BEGIN_SRC emacs-lisp :results silent
+(defun my-org-confirm-babel-evaluate (lang body)
+  (not (string= lang "scheme")))
+(setq org-confirm-babel-evaluate 'my-org-confirm-babel-evaluate)
+(setq org-html-htmlize-output-type 'css)
+(setq geiser-active-implementations '(racket))
+(setq geiser-chibi-load-path '("../src"))
+#+END_SRC
+
+* Monad code
+** Library
+#+NAME: monads-exports
+#+BEGIN_SRC scheme :eval no
+    (export seq make-monad monad? monad-return monad-bind
+	    <maybe> *nothing* nothing? <-)
+#+END_SRC
+*** R6RS
+#+BEGIN_SRC scheme :tangle ../src-r6rs/monads.scm :eval no :noweb no-export
+  (library (monads)
+    <<monads-exports>>
+
+    (import (rnrs (6))
+	    (aux-keyword))
+
+    (begin
+      <<monads-aux-keyword>>
+
+      <<monad-record-r6rs>>
+
+      <<seq-syntax>>
+
+      <<nothing-r6rs>>
+
+      <<maybe-monad>>
+   ))
+#+END_SRC
+
+*** R7RS
+#+BEGIN_SRC scheme :tangle ../src-r7rs/monads.sld :eval no :noweb no-export
+    (define-library (monads)
+      <<monads-exports>>
+
+      (import (scheme base)
+	      (aux-keyword))
+
+      (begin
+	<<monads-aux-keyword>>
+
+	<<monad-record-r7rs>>
+
+	<<seq-syntax>>
+
+	<<nothing-r7rs>>
+
+	<<maybe-monad>>
+     ))
+#+END_SRC
+
+*** Aux keyword
+#+NAME: monads-aux-keyword
+#+BEGIN_SRC scheme
+(define-auxiliary-keywords <-)
+#+END_SRC
+
+** Monad record
+The =<monad>= record contains two fields: =bind= and =return=.
+
+*** R6RS
+#+NAME: monad-record-r6rs
+#+BEGIN_SRC scheme :eval no
+  (define-record-type monad
+    (fields bind return))
+#+END_SRC
+
+*** R7RS
+#+NAME: monad-record-r7rs
+#+BEGIN_SRC scheme :eval no
+  (define-record-type <monad>
+    (make-monad bind return)
+    monad?
+    (bind monad-bind)
+    (return monad-return))
+#+END_SRC
+
+** =seq= syntax
+To chain several =bind= operations together we give the =seq= syntax, which mimics Haskell's =do=.
+
+With regard to tail-recursion, it is worthy to note that the last expression of a =seq= expression is a tail-context.
+
+#+NAME: seq-syntax
+#+BEGIN_SRC scheme :eval no
+  (define-syntax seq
+    (syntax-rules (<-)
+      ;; the last expression in a sequence remains as is.
+      ((_ <M> <f>)
+       <f>)
+
+      ;; (seq M (a <- expression) ...) expands to a nested
+      ;; binding to a function that contains the rest of the
+      ;; sequence
+      ((_ <M>
+	  (<formals> ... <- <f>)
+	  <rest> ...)
+
+       ((monad-bind <M>)
+	<f>
+	(lambda (<formals> ...)
+	  (seq <M> <rest> ...))))
+
+      ;; If the pattern doesn't match the (a <- expr) pattern,
+      ;; the outcome of <f> is thrown away, but we still need
+      ;; a lambda for bind to work on.
+      ((_ <M>
+	  <f>
+	  <rest> ...)
+
+       ((monad-bind <M>)
+	<f>
+	(lambda _
+	  (seq <M> <rest> ...))))))
+#+END_SRC
+
+** Maybe
+The most famous example of a monad is =<maybe>=.
+
+*** R6RS nothing
+#+NAME: nothing-r6rs
+#+BEGIN_SRC scheme
+  (define-record-type nothing)
+#+END_SRC
+
+*** R7RS nothing
+#+NAME: nothing-r7rs
+#+BEGIN_SRC scheme
+  (define-record-type <nothing>
+    (make-nothing)
+    nothing?)
+#+END_SRC
+
+*** Maybe monad
+#+NAME: maybe-monad
+#+BEGIN_SRC scheme :eval no
+  (define *nothing* (make-nothing))
+
+  (define (maybe-bind value f)
+    (if (nothing? value)
+	value
+	(f value)))
+
+  (define maybe-return values)
+
+  (define <maybe> (make-monad maybe-bind maybe-return))
+#+END_SRC
+** Tests
+*** R7RS
+#+BEGIN_SRC scheme :eval no :tangle ../test/r7rs/test-monads.sld :noweb no-export
+(import (scheme base)
+        (scheme write)
+        (assertions)
+        (tests)
+        (monads))
+
+<<test-monads-div>>
+<<test-seq-maybe>>
+
+(display (run-test test-seq-maybe))
+(newline)
+#+END_SRC
+
+*** R6RS
+#+BEGIN_SRC scheme :eval no :tangle ../test/r6rs/test-monads.sld :noweb no-export
+(import (rnrs (6))
+        (assertions)
+        (tests)
+        (monads))
+
+<<test-monads-div>>
+<<test-seq-maybe>>
+
+(display (run-test test-seq-maybe))
+(newline)
+#+END_SRC
+
+*** div
+#+NAME: test-monads-div
+#+BEGIN_SRC scheme :eval no
+(define (div x y)
+  (if (= 0 y)
+      *nothing*
+      (/ x y)))
+#+END_SRC
+
+*** test-seq-maybe
+#+NAME: test-seq-maybe
+#+BEGIN_SRC scheme :eval no
+(define (test-seq-maybe)
+  (define (f x)
+    (seq <maybe>
+         (a <- (div 1 x))
+         (b <- (+ a 1))
+         b))
+
+  (assert (nothing? (f 0)))
+  (assert= (f 3) 4/3))
+#+END_SRC
+
+* Assertions
+** Skeleton
+*** R6RS
+#+BEGIN_SRC scheme :tangle ../src-r6rs/assertions.scm :noweb no-export
+  (library (assertions)
+    (export assert-comp assert-eq assert-equal assert=)
+    (import (rnrs (6)))
+
+    <<assert-syntax>>
+  )
+#+END_SRC
+
+*** R7RS
+#+BEGIN_SRC scheme :tangle ../src-r7rs/assertions.sld :noweb no-export
+  (define-library (assertions)
+    (export assert assertion-violation? condition-message condition-irritants
+	    assert-comp assert-eq assert-equal assert=)
+    (import (scheme base))
+
+    (begin
+      <<assertion-error-r7rs>>
+
+      <<assert>>
+
+      <<assert-syntax>>
+  ))
+#+END_SRC
+** Assertion record
+*** R7RS
+#+NAME: assertion-error-r7rs
+#+BEGIN_SRC scheme :eval no
+  (define-record-type <assertion-violation>
+    (make-assertion-violation msg irritants)
+    assertion-violation?
+    (msg condition-message)
+    (irritants condition-irritants))
+#+END_SRC
+** Assert (R7RS only)
+#+NAME: assert
+#+BEGIN_SRC scheme
+  (define-syntax assert
+    (syntax-rules ()
+      ((_ <x>)
+       (if <x>
+	   #t
+	   (raise (make-assertion-violation "Assertion failed: {:s}\n" '(<x>)))))))
+#+END_SRC
+
+** Syntax
+#+NAME: assert-syntax
+#+BEGIN_SRC scheme :eval no
+  (define-syntax assert-comp
+    (syntax-rules ()
+      ((_ <comp> <a> <b>)
+       (let ((a <a>)
+	     (b <b>))
+	 (if (<comp> a b)
+	     #t
+	     (raise (make-assertion-violation
+		     "Not {:s}:\n* {:s}\nevaluated to\n* {:s}\nexpected\n* {:s}\n"
+		     (list '<comp> '<a> a b))))))))
+
+  (define-syntax assert-eq
+    (syntax-rules ()
+      ((_ <a> <b>)
+       (assert-comp eq? <a> <b>))))
+
+  (define-syntax assert-equal
+    (syntax-rules ()
+      ((_ <a> <b>)
+       (assert-comp equal? <a> <b>))))
+
+  (define-syntax assert=
+    (syntax-rules ()
+      ((_ <a> <b>)
+       (assert-comp = <a> <b>))))
+#+END_SRC
+* Auxiliary keywords (R6RS)
+** R6RS
+#+BEGIN_SRC scheme :tangle ../src-r6rs/aux-keyword.scm :eval no
+(library (aux-keyword)
+  (export define-auxiliary-keyword
+          define-auxiliary-keywords)
+
+  (import (rnrs (6)))
+
+  (define-syntax define-auxiliary-keyword
+    (syntax-rules ()
+      [(_ name)
+       (define-syntax name
+         (lambda (x)
+           (syntax-violation #f "misplaced use of auxiliary keyword" x)))]))
+
+  (define-syntax define-auxiliary-keywords
+    (syntax-rules ()
+      [(_ name* ...)
+       (begin (define-auxiliary-keyword name*) ...)]))
+)
+#+END_SRC
+
+** R7RS
+#+BEGIN_SRC scheme :tangle ../src-r7rs/aux-keyword.sld :eval no
+(define-library (aux-keyword)
+  (export define-auxiliary-keyword
+          define-auxiliary-keywords)
+
+  (import (scheme base))
+
+  (begin
+  (define-syntax define-auxiliary-keyword
+    (syntax-rules ()
+      ((_ name)
+       (define-syntax name
+         (lambda (x)
+           (syntax-violation #f "misplaced use of auxiliary keyword" x))))))
+
+  (define-syntax define-auxiliary-keywords
+    (syntax-rules ()
+      ((_ name* ...)
+       (begin (define-auxiliary-keyword name*) ...))))
+))
+#+END_SRC
+
+* Unit testing
+** skeleton
+*** R6RS
+#+BEGIN_SRC scheme :tangle ../src-r6rs/tests.scm :noweb no-export :eval no
+(library (tests)
+  (export run-test)
+  (import (except (rnrs (6)) assert)
+	  (assertions))
+
+  <<run-test>>
+)
+#+END_SRC
+*** R7RS
+#+BEGIN_SRC scheme :tangle ../src-r7rs/tests.sld :noweb no-export
+(define-library (tests)
+  (export run-test)
+  (import (scheme base)
+	  (scheme write)
+	  (assertions))
+  (begin
+    <<run-test>>
+))
+#+END_SRC
+
+** run-test
+#+NAME: run-test
+#+BEGIN_SRC scheme :eval no
+  (define (run-test t)
+    (call-with-current-continuation
+     (lambda (return)
+       (with-exception-handler
+	   (lambda (exc)
+	     (if (assertion-violation? exc)
+		 (begin
+		   (display (condition-message exc))
+		   (newline)
+		   (display (condition-irritants exc))
+		   (newline))
+		 (begin
+		   (display "Unknown exception: ")
+		   (display exc)
+		   (newline)))
+	     (return 'fail))
+	 t)
+       'success)))
+#+END_SRC

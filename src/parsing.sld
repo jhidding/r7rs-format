@@ -14,7 +14,7 @@
    char= char!= word space space? char-in
 
    ;; practical parsers
-   tokenize many-end-with* enclosed
+   tokenize many-end-with* enclosed look-ahead
 
    ;; parser record
    parser? parser-name parser-call make-parser
@@ -118,6 +118,14 @@
 	((transfer)
 	 (lambda (cursor aux)
 	   (values (transfer (car aux)) cursor (cdr aux))))))
+
+    (define (push-cursor)
+      (lambda (cursor aux)
+	(values *nothing* cursor (cons cursor aux))))
+
+    (define (pop-cursor)
+      (lambda (cursor aux)
+	(values *nothing* (car aux) (cdr aux))))
 
     (define (push value)
       (lambda (cursor aux)
@@ -267,6 +275,14 @@
        (seq <parsing>
 	    parser
 	    (many-end-with* parser str))))
+
+    (define (look-ahead parser ahead)
+      (seq <parsing>
+	   (x <- parser)
+	   (push-cursor)
+	   ahead
+	   (pop-cursor)
+	   (parsing-return x)))
 
     (define (many-end-with-exc* parser end transfer)
       (choice

@@ -47,15 +47,10 @@
 
     (define spec-parser
       (seq <parsing>
-	   (align     <- (optional
-			  (choice
-			   (seq <parsing>
-				(fill <- (one item))
-				(dir  <- (one (char= #\< #\^ #\>)))
-				(parsing-return (cons fill dir)))
-			   (seq <parsing>
-				(dir  <- (one (char= #\< #\^ #\>)))
-				(parsing-return (cons #\space dir))))))
+	   (fill      <- (optional (look-ahead
+				    (one item)
+				    (one (char= #\< #\^ #\>)))))
+	   (align     <- (optional (one (char= #\< #\^ #\>))))
 	   (sign      <- (optional (one (char= #\+ #\-))))
 	   (sharp     <- (optional (one (char= #\#))))
 	   (zero      <- (optional (one (char= #\0))))
@@ -63,9 +58,7 @@
 	   (precision <- (optional (seq <parsing> (one (char= #\.)) count)))
 	   (type      <- (optional identifier))
 	   (parsing-return
-	    (make-spec (if (nothing? align) *nothing* (car align))
-		       (if (nothing? align) *nothing* (cdr align))
-		       sign sharp zero width precision type))))
+	    (make-spec fill align sign sharp zero width precision type))))
 
     (define escape
       (choice (seq <parsing>

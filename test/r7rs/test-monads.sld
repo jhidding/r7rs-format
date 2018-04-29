@@ -1,16 +1,13 @@
 (import (scheme base)
         (scheme write)
-
         (assertions)
         (tests)
-
         (monads))
 
 (define (div x y)
   (if (= 0 y)
       *nothing*
       (/ x y)))
-
 (define (test-seq-maybe)
   (define (f x)
     (seq <maybe>

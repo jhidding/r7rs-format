@@ -1,10 +1,13 @@
 (define-library (monads)
   (export seq make-monad monad? monad-return monad-bind
-	  *maybe* *nothing* nothing?)
+  	<maybe> *nothing* nothing? <-)
 
-  (import (scheme base))
+  (import (scheme base)
+	  (aux-keyword))
 
   (begin
+    (define-auxiliary-keywords <-)
+
     (define-record-type <monad>
       (make-monad bind return)
       monad?
@@ -44,7 +47,7 @@
     (define-record-type <nothing>
       (make-nothing)
       nothing?)
-    
+
     (define *nothing* (make-nothing))
     
     (define (maybe-bind value f)
@@ -54,5 +57,5 @@
     
     (define maybe-return values)
     
-    (define *maybe* (make-monad maybe-bind maybe-return))
+    (define <maybe> (make-monad maybe-bind maybe-return))
  ))
